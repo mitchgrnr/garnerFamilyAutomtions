@@ -14,7 +14,7 @@ worker.webhook(FinTxCreateWebHook.name, {
   execute: async (events, { notion }) => {
     for (const event of events) {
       const webhookBody = FinTxCreateWebHook.expectedPayload.fromBody(event.body);
-      FinTxCreateWebHook.webHookFunction({ payload: webhookBody }, { notion }, { process });
+      await FinTxCreateWebHook.webHookFunction({ payload: webhookBody }, { notion }, { process });
     }
   },
 });
