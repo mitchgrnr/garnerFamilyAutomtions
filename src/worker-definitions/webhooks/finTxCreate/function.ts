@@ -12,21 +12,19 @@ export async function WebHookFunction({ payload }: { payload: Payload; }, { noti
         console.error(`Error retrieving transaction page with ID ${payload.data.id}:`, error);
         return;
     }
-    console.log(`Retrieved transaction page: ${JSON.stringify(finTx)}`);
+    console.log(`Retrieved transaction page.`);
     //Get environment variables for data source IDs
     console.log(`Retrieving environment variables for data source IDs...`);
     const FIN_TRANSACTIONS_DS_ID = process.env.FIN_TRANSACTIONS_DS_ID!;
     const CATEGORY_MAP_DS_ID = process.env.CATEGORY_MAP_DS_ID!;
     const BUDGET_CAT_DS_ID = process.env.BUDGET_CAT_DS_ID!;
-    console.log(`Using FIN_TRANSACTIONS_DS_ID: ${FIN_TRANSACTIONS_DS_ID}`);
-    console.log(`Using CATEGORY_MAP_DS_ID: ${CATEGORY_MAP_DS_ID}`);
-    console.log(`Using BUDGET_CAT_DS_ID: ${BUDGET_CAT_DS_ID}`);
     const categoryProp: any = (finTx as any).properties?.["Category"];
     const category: string | null = categoryProp?.select?.name ?? null;
     if (!category) {
         console.log(`Transaction ${payload.data.id} has no category, skipping mapping.`);
         return;
     }
+    console.log(`Transaction category is ${category}, searching for mapping...`);
     // 2) Query mapping DB for exact Name match
     const mappingQuery = await notion.dataSources.query({
         data_source_id: CATEGORY_MAP_DS_ID,
