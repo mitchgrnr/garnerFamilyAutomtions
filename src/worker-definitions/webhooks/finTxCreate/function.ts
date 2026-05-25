@@ -4,8 +4,11 @@ import { Client } from "@notionhq/client";
 export async function WebHookFunction({ payload }: { payload: Payload; }, { notion }: { notion: Client }, { process }: { process: any }): Promise<void> {
     console.log("Received finTxCreate webhook with payload:", payload);
     //Get page
+    console.log(`Retrieving transaction page with ID ${payload.data.id}`);
     const finTx = await notion.pages.retrieve({ page_id: payload.data.id });
+    console.log(`Retrieved transaction page: ${JSON.stringify(finTx)}`);
     //Get environment variables for data source IDs
+    console.log(`Retrieving environment variables for data source IDs...`);
     const FIN_TRANSACTIONS_DS_ID = process.env.FIN_TRANSACTIONS_DS_ID!;
     const CATEGORY_MAP_DS_ID = process.env.CATEGORY_MAP_DS_ID!;
     const BUDGET_CAT_DS_ID = process.env.BUDGET_CAT_DS_ID!;
