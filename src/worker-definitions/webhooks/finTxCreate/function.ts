@@ -5,7 +5,13 @@ export async function WebHookFunction({ payload }: { payload: Payload; }, { noti
     console.log("Received finTxCreate webhook with payload:", payload);
     //Get page
     console.log(`Retrieving transaction page with ID ${payload.data.id}`);
-    const finTx = await notion.pages.retrieve({ page_id: payload.data.id });
+    let finTx: any;
+    try {
+        finTx = await notion.pages.retrieve({ page_id: payload.data.id });
+    } catch (error) {
+        console.error(`Error retrieving transaction page with ID ${payload.data.id}:`, error);
+        return;
+    }
     console.log(`Retrieved transaction page: ${JSON.stringify(finTx)}`);
     //Get environment variables for data source IDs
     console.log(`Retrieving environment variables for data source IDs...`);
