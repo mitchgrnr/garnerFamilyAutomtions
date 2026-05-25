@@ -14,7 +14,7 @@ worker.webhook(FinTxCreateWebHook.name, {
   execute: async (events, { notion }) => {
     for (const event of events) {
       const webhookBody = FinTxCreateWebHook.expectedPayload.fromBody(event.body);
-      FinTxCreateWebHook.webHookFunction({ payload: webhookBody }, { notion });
+      FinTxCreateWebHook.webHookFunction({ payload: webhookBody }, { notion }, { process });
     }
   },
 });
@@ -32,6 +32,6 @@ worker.tool(SetTransactionCategoryMapping.name, {
       category: string | null;
       mappingPageId: string | null
     }> => {
-    return SetTransactionCategoryMapping.toolFunction({ input }, { notion }, process);
+    return SetTransactionCategoryMapping.toolFunction({ input }, { notion }, { process });
   },
 });
