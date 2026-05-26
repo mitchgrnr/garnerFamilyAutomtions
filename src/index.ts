@@ -1,7 +1,10 @@
 import { Worker } from "@notionhq/workers";
 import { j } from "@notionhq/workers/schema-builder";
+import * as Builder from "@notionhq/workers/builder";
+import * as Schema from "@notionhq/workers/schema";
 import { FinTxCreateWebHook } from "./worker-definitions/webhooks/finTxCreate";
 import { SetTransactionCategoryMapping } from "./worker-definitions/tools/setTransactionCategoryMapping";
+import { iteratePaginatedAPI } from "@notionhq/client";
 
 const worker = new Worker();
 export default worker;
@@ -38,4 +41,47 @@ worker.tool(SetTransactionCategoryMapping.name, {
     }> => {
     return SetTransactionCategoryMapping.toolFunction({ input }, { notion }, { process });
   },
+});
+const syncs = worker.database("syncs", {
+  type: "managed",
+  initialTitle: "Syncs",
+  primaryKeyProperty: "Sync ID",
+  schema: {
+    properties: {
+      Name: Schema.title(),
+      "Sync ID": Schema.richText(),
+    },
+  },
+});
+worker.sync("syncTransactionCategories", {
+  database: syncs,
+  schedule: "manual",
+  execute: async (state, { notion }) => {
+    console.log(`Retrieving environment variables for data source IDs...`);
+    const FIN_TRANSACTIONS_DS_ID = process.env.FIN_TRANSACTIONS_DS_ID!;
+    const CATEGORY_MAP_DS_ID = process.env.CATEGORY_MAP_DS_ID!;
+    const BUDGET_CAT_DS_ID = process.env.BUDGET_CAT_DS_ID!;
+    for await (const page of iteratePaginatedAPI(
+      notion.dataSources.query,
+      { data_source_id: FIN_TRANSACTIONS_DS_ID, filter: { property: "🗺️ Financial Category mapping", relation: { is_empty: true } } },
+    )) {
+      // Process each page result as it arrives
+      console.log(page);
+    };
+    const syncID = `syncTransactionCategories-${Date.now().toString()}`;
+    return {
+      state: "synced",
+      changes: [
+        {
+          "type": "upsert" as const,
+          "key": syncID,
+          "properties": {
+            Name: Builder.title(`Sync: ${syncID}`),
+            "Sync ID": Builder.richText(syncID),
+          }
+        }
+      ],
+      hasMore: false,
+    };
+  }
 });
