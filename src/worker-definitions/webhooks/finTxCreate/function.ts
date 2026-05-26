@@ -2,7 +2,7 @@ import { Payload } from "./payload";
 import { Client } from "@notionhq/client";
 
 export async function WebHookFunction({ payload }: { payload: Payload; }, { notion }: { notion: Client }, { process }: { process: any }): Promise<void> {
-    try{
+    try {
         console.log("Received finTxCreate webhook with payload:", payload);
         //Get page
         console.log(`Retrieving transaction page with ID ${payload.data.id}`);
@@ -65,14 +65,30 @@ export async function WebHookFunction({ payload }: { payload: Payload; }, { noti
             console.log(`Created mapping page with ID ${mappingPageId} for category ${category}.`);
         }
         // 5) Update the transaction relation (overwrite to stay in sync)
-        const updated = await notion.pages.update({
-            page_id: payload.data.id,
-            properties: {
-                "🗺️ Financial Category mapping": { relation: [{ id: mappingPageId }] },
-            },
-        });
+        const updated = await withRetries(() =>
+            notion.pages.update({
+                page_id: payload.data.id,
+                properties: {
+                    "🗺️ Financial Category mapping": { relation: [{ id: mappingPageId }] },
+                },
+            })
+        );
         console.log(`Updated transaction ${payload.data.id} with category mapping relation to page ID ${mappingPageId}.`);
     } catch (error) {
         console.error(`Error in finTxCreate WebHookFunction:`, error);
+    }
+    async function withRetries<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
+        let lastErr: unknown;
+        for (let i = 0; i < tries; i++) {
+            try {
+                return await fn();
+            } catch (err) {
+                lastErr = err;
+                // backoff: 500ms, 1s, 2s, 4s...
+                const delayMs = 500 * Math.pow(2, i);
+                await new Promise((r) => setTimeout(r, delayMs));
+            }
+        }
+        throw lastErr;
     }
 }
