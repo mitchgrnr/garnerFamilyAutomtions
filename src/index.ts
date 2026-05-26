@@ -66,7 +66,9 @@ worker.sync("syncTransactionCategories", {
       { data_source_id: FIN_TRANSACTIONS_DS_ID, filter: { property: "🗺️ Financial Category mapping", relation: { is_empty: true } } },
     )) {
       // Process each page result as it arrives
-      console.log(page);
+      console.log(`Processing page: ${page}`);
+      console.log(`End of page`);
+      console.log(`-----------------------------------`);
     };
     const syncID = `syncTransactionCategories-${Date.now().toString()}`;
     return {
