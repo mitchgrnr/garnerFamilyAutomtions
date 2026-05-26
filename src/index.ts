@@ -13,8 +13,12 @@ worker.webhook(FinTxCreateWebHook.name, {
   description: FinTxCreateWebHook.description,
   execute: async (events, { notion }) => {
     for (const event of events) {
-      const webhookBody = FinTxCreateWebHook.expectedPayload.fromBody(event.body);
-      await FinTxCreateWebHook.webHookFunction({ payload: webhookBody }, { notion }, { process });
+      try {
+        const webhookBody = FinTxCreateWebHook.expectedPayload.fromBody(event.body);
+        await FinTxCreateWebHook.webHookFunction({ payload: webhookBody }, { notion }, { process });
+      } catch (error) {
+        console.error(`Error processing finTxCreate webhook:`, error);
+      }
     }
   },
 });
