@@ -161,6 +161,85 @@ worker.sync("syncTransactionCategories", {
     };
   }
 });
+worker.sync("syncTransactionNames", {
+  database: syncs,
+  schedule: "manual",
+  execute: async (state, { notion }) => {
+    const syncID = `syncTransactionNames-${Date.now().toString()}`;
+    console.log(`Retrieving environment variables for data source IDs...`);
+    const FIN_TRANSACTIONS_DS_ID = process.env.FIN_TRANSACTIONS_DS_ID!;
+    const CATEGORY_MAP_DS_ID = process.env.CATEGORY_MAP_DS_ID!;
+    const BUDGET_CAT_DS_ID = process.env.BUDGET_CAT_DS_ID!;
+    console.log(`Starting sync to set transaction category mappings...`);
+    let processedCount = 0;
+    for await (const page of iteratePaginatedAPI(
+      notion.dataSources.query,
+      {
+        data_source_id: FIN_TRANSACTIONS_DS_ID, "filter": {
+          "property": "NameFixNeeded",
+          "formula": {
+            "checkbox": {
+              "equals": true
+            }
+          }
+        }
+      }
+    )) {
+      const calculatedName: any = (page as any).properties?.["Calculated Name"].formula.string;
+      if (!calculatedName) {
+        console.log(`Transaction ${page.id} has no calculated name, skipping mapping.`);
+        continue;
+      }
+      console.log(`Transaction calculated name is ${calculatedName}, updating....`);
+      const updated = await withRetries(() =>
+        notion.pages.update({
+          page_id: page.id,
+          properties: {
+            "Transaction": {
+              "title": [{ "text": { "content": calculatedName } }]
+            }
+          },
+        })
+      );
+      console.log(`Updated transaction ${page.id} with to nane ${calculatedName}.`);
+      processedCount++;
+      console.log(`Processed ${processedCount} transaction(s) so far...`);
+      if (processedCount === 10) {
+        console.log(`Processed 10 transactions, ending run and returning with hasMore: true.`);
+        return {
+          state: "moreToSync",
+          changes: [
+            {
+              "type": "upsert" as const,
+              "key": syncID,
+              "properties": {
+                Name: Builder.title(`Sync: ${syncID}`),
+                "Sync ID": Builder.richText(syncID),
+                State: Builder.richText("moreToSync"),
+              }
+            }
+          ],
+          hasMore: true,
+        };
+      }
+    };
+    return {
+      state: "synced",
+      changes: [
+        {
+          "type": "upsert" as const,
+          "key": syncID,
+          "properties": {
+            Name: Builder.title(`Sync: ${syncID}`),
+            "Sync ID": Builder.richText(syncID),
+            State: Builder.richText("synced"),
+          }
+        }
+      ],
+      hasMore: false,
+    };
+  }
+});
 async function withRetries<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
   let lastErr: unknown;
   for (let i = 0; i < tries; i++) {
