@@ -65,10 +65,60 @@ worker.sync("syncTransactionCategories", {
       notion.dataSources.query,
       { data_source_id: FIN_TRANSACTIONS_DS_ID, filter: { property: "🗺️ Financial Category mapping", relation: { is_empty: true } } },
     )) {
-      // Process each page result as it arrives
-      console.log(`Processing page: ${JSON.stringify(page)}`);
-      console.log(`End of page`);
-      console.log(`-----------------------------------`);
+      const categoryProp: any = (page as any).properties?.["Category"];
+      const category: string | null = categoryProp?.select?.name ?? null;
+      if (!category) {
+        console.log(`Transaction ${page.id} has no category, skipping mapping.`);
+        continue;
+      }
+      console.log(`Transaction category is ${category}, searching for mapping...`);
+      // 2) Query mapping DB for exact Name match
+      const mappingQuery = await notion.dataSources.query({
+        data_source_id: CATEGORY_MAP_DS_ID,
+        filter: { property: "Name", title: { equals: category } },
+        page_size: 2,
+      });
+      let mappingPageId: string;
+      if (mappingQuery.results.length === 1) {
+        console.log(`Found mapping for category ${category} with page ID ${mappingQuery.results[0].id}`);
+        mappingPageId = mappingQuery.results[0].id;
+      } else if (mappingQuery.results.length > 1) {
+        console.log(`Duplicate mapping rows found for category ${category}, cannot determine correct mapping.`);
+        continue;
+      } else {
+        // 3) Find "Uncategorized" Budget Category
+        console.log(`No mapping found for category ${category}, searching for Uncategorized budget category.`);
+        const budgetQuery = await notion.dataSources.query({
+          data_source_id: BUDGET_CAT_DS_ID,
+          filter: { property: "Budget Category Name", title: { equals: "Uncategorized" } },
+          page_size: 2,
+        });
+        if (budgetQuery.results.length !== 1) {
+          console.log(`Uncategorized budget category not found/unique`);
+          continue;
+        }
+        const uncategorizedId = budgetQuery.results[0].id;
+        console.log(`Found Uncategorized budget category with ID ${uncategorizedId}, creating mapping for category ${category}.`);
+        // 4) Create mapping row
+        const created = await notion.pages.create({
+          parent: { data_source_id: CATEGORY_MAP_DS_ID },
+          properties: {
+            Name: { title: [{ type: "text", text: { content: category } }] },
+            "Budget Categories": { relation: [{ id: uncategorizedId }] },
+          },
+        });
+        mappingPageId = created.id;
+        console.log(`Created mapping page with ID ${mappingPageId} for category ${category}.`);
+      }
+      const updated = await withRetries(() =>
+        notion.pages.update({
+          page_id: page.id,
+          properties: {
+            "🗺️ Financial Category mapping": { relation: [{ id: mappingPageId }] },
+          },
+        })
+      );
+      console.log(`Updated transaction ${page.id} with category mapping relation to page ID ${mappingPageId}.`);
     };
     const syncID = `syncTransactionCategories-${Date.now().toString()}`;
     return {
@@ -87,3 +137,17 @@ worker.sync("syncTransactionCategories", {
     };
   }
 });
+async function withRetries<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < tries; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      // backoff: 500ms, 1s, 2s, 4s...
+      const delayMs = 500 * Math.pow(2, i);
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  throw lastErr;
+}
