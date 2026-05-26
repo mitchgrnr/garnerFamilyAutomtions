@@ -50,6 +50,7 @@ const syncs = worker.database("syncs", {
     properties: {
       Name: Schema.title(),
       "Sync ID": Schema.richText(),
+      State: Schema.richText(),
     },
   },
 });
@@ -57,10 +58,13 @@ worker.sync("syncTransactionCategories", {
   database: syncs,
   schedule: "manual",
   execute: async (state, { notion }) => {
+    const syncID = `syncTransactionCategories-${Date.now().toString()}`;
     console.log(`Retrieving environment variables for data source IDs...`);
     const FIN_TRANSACTIONS_DS_ID = process.env.FIN_TRANSACTIONS_DS_ID!;
     const CATEGORY_MAP_DS_ID = process.env.CATEGORY_MAP_DS_ID!;
     const BUDGET_CAT_DS_ID = process.env.BUDGET_CAT_DS_ID!;
+    console.log(`Starting sync to set transaction category mappings...`);
+    let processedCount = 0;
     for await (const page of iteratePaginatedAPI(
       notion.dataSources.query,
       { data_source_id: FIN_TRANSACTIONS_DS_ID, filter: { property: "🗺️ Financial Category mapping", relation: { is_empty: true } } },
@@ -119,8 +123,27 @@ worker.sync("syncTransactionCategories", {
         })
       );
       console.log(`Updated transaction ${page.id} with category mapping relation to page ID ${mappingPageId}.`);
+      processedCount++;
+      console.log(`Processed ${processedCount} transaction(s) so far...`);
+      if (processedCount === 10) {
+        console.log(`Processed 10 transactions, ending run and returning with hasMore: true.`);
+        return {
+          state: "moreToSync",
+          changes: [
+            {
+              "type": "upsert" as const,
+              "key": syncID,
+              "properties": {
+                Name: Builder.title(`Sync: ${syncID}`),
+                "Sync ID": Builder.richText(syncID),
+                State: Builder.richText("moreToSync"),
+              }
+            }
+          ],
+          hasMore: true,
+        };
+      }
     };
-    const syncID = `syncTransactionCategories-${Date.now().toString()}`;
     return {
       state: "synced",
       changes: [
@@ -130,6 +153,7 @@ worker.sync("syncTransactionCategories", {
           "properties": {
             Name: Builder.title(`Sync: ${syncID}`),
             "Sync ID": Builder.richText(syncID),
+            State: Builder.richText("synced"),
           }
         }
       ],
