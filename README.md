@@ -1,15 +1,19 @@
-# Notion Workers [beta]
+# Garner Family Automations (Notion Worker)
 
-A worker is a small Node/TypeScript program hosted by Notion. Workers have three capability types:
+This repository contains a deployed Notion Worker that automates personal finance budget mapping and metadata cleanup within Notion. 
 
-- **Tools** — callable functions for Notion custom agents
-- **Syncs** — sync external data sources into Notion
-- **Webhooks** — receive HTTP events from external services
+## Deployed Capabilities
+- **SetTransactionCategoryMapping** (Tool): Matches up personal budget categories with imported financial transactions, callable by custom agents.
+- **syncTransactionCategories** (Sync): A manual backfill sync that relates imported transaction pages to their category mappings in the mapping database.
+- **syncTransactionNames** (Sync): A manual backfill sync that constructs and sets the transaction page titles ("Name" property) using a formulaic concatenation of fields, resolving empty titles left by external syncing tools.
+- **FinTxCreateWebhook** (Webhook): A Notion Automation webhook triggered on page creation to automatically set category mappings. 
 
-> [!NOTE]
->
-> Notion Workers is currently in beta. APIs, CLI commands, templates, and
-> hosting behavior may continue to evolve.
+## Known Issues & Limitations
+> [!WARNING]
+> **FinTxCreateWebhook Rate Limiting:** Under high-volume transaction imports, the Notion Automation webhook may fail or hit rate-limiting boundaries. To mitigate this:
+> 1. Use the backfill sync capabilities (`syncTransactionCategories` and `syncTransactionNames`) for large batches of imports.
+> 2. Ensure all API-calling capabilities utilize the `withRetries` utility with exponential backoff.
+> 3. Once Notion introduces native capabilities triggered directly from automations, evaluate them to replace this webhook workaround.
 
 ## Quick start
 

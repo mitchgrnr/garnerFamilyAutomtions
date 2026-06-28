@@ -1,94 +1,100 @@
 import { Payload } from "./payload";
 import { Client } from "@notionhq/client";
+import { withRetries } from "../../../utils";
 
-export async function WebHookFunction({ payload }: { payload: Payload; }, { notion }: { notion: Client }, { process }: { process: any }): Promise<void> {
-    try {
-        console.log("Received finTxCreate webhook with payload:", payload);
-        //Get page
-        console.log(`Retrieving transaction page with ID ${payload.data.id}`);
-        let finTx: any;
-        try {
-            finTx = await notion.pages.retrieve({ page_id: payload.data.id });
-        } catch (error) {
-            console.error(`Error retrieving transaction page with ID ${payload.data.id}:`, error);
-            return;
-        }
-        console.log(`Retrieved transaction page.`);
-        //Get environment variables for data source IDs
-        console.log(`Retrieving environment variables for data source IDs...`);
-        const FIN_TRANSACTIONS_DS_ID = process.env.FIN_TRANSACTIONS_DS_ID!;
-        const CATEGORY_MAP_DS_ID = process.env.CATEGORY_MAP_DS_ID!;
-        const BUDGET_CAT_DS_ID = process.env.BUDGET_CAT_DS_ID!;
-        const categoryProp: any = (finTx as any).properties?.["Category"];
-        const category: string | null = categoryProp?.select?.name ?? null;
-        if (!category) {
-            console.log(`Transaction ${payload.data.id} has no category, skipping mapping.`);
-            return;
-        }
-        console.log(`Transaction category is ${category}, searching for mapping...`);
-        // 2) Query mapping DB for exact Name match
-        const mappingQuery = await notion.dataSources.query({
-            data_source_id: CATEGORY_MAP_DS_ID,
-            filter: { property: "Name", title: { equals: category } },
-            page_size: 2,
-        });
-        let mappingPageId: string;
-        if (mappingQuery.results.length === 1) {
-            console.log(`Found mapping for category ${category} with page ID ${mappingQuery.results[0].id}`);
-            mappingPageId = mappingQuery.results[0].id;
-        } else if (mappingQuery.results.length > 1) {
-            console.log(`Duplicate mapping rows found for category ${category}, cannot determine correct mapping.`);
-            return;
-        } else {
-            // 3) Find "Uncategorized" Budget Category
-            console.log(`No mapping found for category ${category}, searching for Uncategorized budget category.`);
-            const budgetQuery = await notion.dataSources.query({
-                data_source_id: BUDGET_CAT_DS_ID,
-                filter: { property: "Budget Category Name", title: { equals: "Uncategorized" } },
-                page_size: 2,
-            });
-            if (budgetQuery.results.length !== 1) {
-                console.log(`Uncategorized budget category not found/unique`);
-                return;
-            }
-            const uncategorizedId = budgetQuery.results[0].id;
-            console.log(`Found Uncategorized budget category with ID ${uncategorizedId}, creating mapping for category ${category}.`);
-            // 4) Create mapping row
-            const created = await notion.pages.create({
-                parent: { data_source_id: CATEGORY_MAP_DS_ID },
-                properties: {
-                    Name: { title: [{ type: "text", text: { content: category } }] },
-                    "Budget Categories": { relation: [{ id: uncategorizedId }] },
-                },
-            });
-            mappingPageId = created.id;
-            console.log(`Created mapping page with ID ${mappingPageId} for category ${category}.`);
-        }
-        // 5) Update the transaction relation (overwrite to stay in sync)
-        const updated = await withRetries(() =>
-            notion.pages.update({
-                page_id: payload.data.id,
-                properties: {
-                    "🗺️ Financial Category mapping": { relation: [{ id: mappingPageId }] },
-                },
-            })
-        );
-        console.log(`Updated transaction ${payload.data.id} with category mapping relation to page ID ${mappingPageId}.`);
-    } catch (error) {
-        console.error(`Error in finTxCreate WebHookFunction:`, error);
+interface WebhookEnv {
+  CATEGORY_MAP_DS_ID: string;
+  BUDGET_CAT_DS_ID: string;
+}
+
+/**
+ * Webhook execute handler triggered when a financial transaction page is created.
+ */
+export async function WebHookFunction(
+  { payload }: { payload: Payload },
+  { notion }: { notion: Client },
+  { process }: { process: any }
+): Promise<void> {
+  try {
+    const finTx = await retrieveFinTxPage(notion, payload.data.id);
+    if (!finTx) return;
+
+    const env = {
+      CATEGORY_MAP_DS_ID: process.env.CATEGORY_MAP_DS_ID!,
+      BUDGET_CAT_DS_ID: process.env.BUDGET_CAT_DS_ID!,
+    };
+    const category = (finTx as any).properties?.["Category"]?.select?.name ?? null;
+    if (!category) {
+      console.log(`Transaction ${payload.data.id} has no category, skipping mapping.`);
+      return;
     }
-    async function withRetries<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
-        let lastErr: unknown;
-        for (let i = 0; i < tries; i++) {
-            try {
-                return await fn();
-            } catch (err) {
-                lastErr = err;
-                // backoff: 500ms, 1s, 2s, 4s...
-                const delayMs = 500 * Math.pow(2, i);
-                await new Promise((r) => setTimeout(r, delayMs));
-            }
-        }
-        throw lastErr;
-    }
+    const mappingPageId = await getOrCreateMappingForCategory(notion, category, env);
+    if (!mappingPageId) return;
+
+    await updateTransactionCategoryRelation(notion, payload.data.id, mappingPageId);
+  } catch (error) {
+    console.error(`Error in finTxCreate WebHookFunction:`, error);
+  }
+}
+
+async function retrieveFinTxPage(notion: Client, pageId: string) {
+  try {
+    return await notion.pages.retrieve({ page_id: pageId });
+  } catch (error) {
+    console.error(`Error retrieving transaction page with ID ${pageId}:`, error);
+    return null;
+  }
+}
+
+async function getOrCreateMappingForCategory(notion: Client, category: string, env: WebhookEnv): Promise<string | null> {
+  const query = await notion.dataSources.query({
+    data_source_id: env.CATEGORY_MAP_DS_ID,
+    filter: { property: "Name", title: { equals: category } },
+    page_size: 2,
+  });
+  if (query.results.length === 1) {
+    return query.results[0].id;
+  }
+  if (query.results.length > 1) {
+    console.log(`Duplicate mapping rows found for category ${category}`);
+    return null;
+  }
+  return createCategoryMapping(notion, category, env.CATEGORY_MAP_DS_ID, env.BUDGET_CAT_DS_ID);
+}
+
+async function createCategoryMapping(
+  notion: Client,
+  category: string,
+  categoryMapDsId: string,
+  budgetCatDsId: string
+): Promise<string | null> {
+  const budgetQuery = await notion.dataSources.query({
+    data_source_id: budgetCatDsId,
+    filter: { property: "Budget Category Name", title: { equals: "Uncategorized" } },
+    page_size: 2,
+  });
+  if (budgetQuery.results.length !== 1) {
+    console.log(`Uncategorized budget category not found/unique`);
+    return null;
+  }
+  const created = await notion.pages.create({
+    parent: { data_source_id: categoryMapDsId },
+    properties: {
+      Name: { title: [{ type: "text", text: { content: category } }] },
+      "Budget Categories": { relation: [{ id: budgetQuery.results[0].id }] },
+    },
+  });
+  return created.id;
+}
+
+async function updateTransactionCategoryRelation(notion: Client, pageId: string, mappingPageId: string): Promise<void> {
+  await withRetries(() =>
+    notion.pages.update({
+      page_id: pageId,
+      properties: {
+        "🗺️ Financial Category mapping": { relation: [{ id: mappingPageId }] },
+      },
+    })
+  );
+  console.log(`Updated transaction ${pageId} with category mapping relation to page ID ${mappingPageId}.`);
 }
