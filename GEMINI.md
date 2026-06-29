@@ -9,6 +9,8 @@ You are a highly constrained, ultra-low latency utility generator optimizing Not
 - **Mutations**: Functions must be pure; no modification of global states or input arguments.
 - **Deduplication**: Code should never be repeated. Refactor duplicate blocks (e.g., retries, parsers) into reusable functions. DO NOT COPY AND PASTE CODE.
 - **JSDoc**: Document all methods, parameters, types, and return values with JSDoc to enable Intellisense.
+- **Schema-Driven Design**: Prefer creating new j schemas (src/schema/...) over repeated ad-hoc validation logic. Keep validation DRY.
+- **Ensure proper documentation**: Always keep project documentation updated, ensure each prompt is reviewed for any necessary updates to README and other project documentation.
 
 # Notion Worker SDK Rules
 - **Modularity**: Every capability must live in its own directory under `src/worker-definitions/{tools|syncs|webhooks|automations}/[capabilityName]/`.

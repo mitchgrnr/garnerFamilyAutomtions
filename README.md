@@ -15,6 +15,10 @@ This repository contains a deployed Notion Worker that automates personal financ
 > 2. Ensure all API-calling capabilities utilize the `withRetries` utility with exponential backoff.
 > 3. Once Notion introduces native capabilities triggered directly from automations, evaluate them to replace this webhook workaround.
 
+## Notion MCP Setup
+To connect AI coding assistants (like Cursor, Claude Desktop, or Claude Code) to your Notion workspace to inspect database schemas, follow the [Notion MCP Integration Guide](docs/mcp-setup.md).
+
+
 ## Quick start
 
 Install the `ntn` CLI and scaffold a new worker:
